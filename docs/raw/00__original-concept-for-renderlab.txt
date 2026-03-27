@@ -1,0 +1,552 @@
+title: Original Concept for Exo-Studio
+date: 2026-03-26
+chatgpt: https://chatgpt.com/c/69c5b970-dec4-83e8-9be7-81f9322b259e
+
+== Original Prompt ==
+date: 2026-03-26
+
+I want to design an AI Studio-like (Google's "AI Studio") system.
+
+AI Studio has this thing where -- when you go to their page -- if you submit a a bunch of elements for a prompt -- some files: JSON, text files, image files, -- and set it up as a prompt that you're about to submit, and then hit this button "turn to code" (or something like that,) it'll actually generate Python code for submitting that prompt, including the file submissions and everything -- which: is awesome.  I absolutely love that.
+
+But we need to (and "we" here is Robert + I -- and I suppose I'm shang-hai'ing you into our adventures here,) -- we need to make something where: We can perform six requests in parallel.  Any number of requests, in parallel.  And prepare requests in parallel.  You know, if I could set up a request, and then duplicate it six times, and make a slight variation in each one, and kick them all off to make 4 renders each -- it'd be amazing.  And then have tracking and records straight for everything.
+
+We talked about this earlier, I just haven't been able to find the prior conversation.  The idea was that you would build the request details in a folder, including all tracking details, and then for each rendering, store the results in a file in a "renders" sub-directory.
+
+Sometimes I have a prompt divided into two JSON files.  One part varies, and another part stays the same.  Like one represents a solid brick of code, and the other represents parameters to it.  "Render this design...  Now this one...  And now this one."  One file is the same across all of them, and the other file is differing.  Oh, and we have a Hanko in an image file that we attach to each image, as well, -- or a signature, or something.
+
+I want this all to be easy, automatic.  I also -- want to make it incrementally. I don't want to program the whole thing at once. I'd like to be able to preview the, or review the things that are output. I want to be able to run it one time or six times, create multiple images in a single go. I'd prefer that it be tkinter-based rather than CLI-based or Python import based. Although, I mean, it obviously doesn't hurt to have those as well. But -- CLI first.  Viewing outputs, changing prompts.
+
+Also, eventually I would like to grow it into something where I can take an image, use green to block out part of that image and then say, hey, can you fill this? Because there often is just something broken that needs to be fixed.
+
+I have had thoughts about -- how to make it part of a FileTalk ecology.  I think the thing to do is have an images directory, then, that is shared by the various programs.  Put images in there with a GUID as the key part of the file identifier (the file name), and pass the pointer to it in the filetalk messages.  Periodically, just delete everything in there older than say 4 hours.  (It's essentially a temporary store for parameter-like passed images.  Things that output a file then copy it to a relatively-speaking permanent location.)
+
+Thoughts on all of this?
+
+
+== Thoughts While Reading Response ==
+date: 2026-03-26
+
+  FOLDER DESIGN
+
+  My thought is something like:
+
+  .../assets/  -- contains files that are issued along with the request:
+                  image inputs, JSON blocks, text blocks, signature/hanko images,
+                  masks, style guides, common prompt fragments
+    assets.json  -- directory of assets, information about the assets,
+                    including a GUID for each asset
+    
+  .../requests
+    recipe.json  -- keeps assets used in recipe,
+                    (core string content of recipe?  or should it only rely on assets?),
+                    time at which the recipe was designed,
+                    model to use,
+                    generation settings (aspect ratio, 1K vs 2K vs 4K output, ...)
+
+    execution.json  -- times of execution attempts,
+                       GUID-based names of image files in /renders/ that were returned,
+                       status, ...
+
+    /assets/  -- assets that are specific to this particular render
+      assets.json  -- directory of assets, specific to this render,
+                         identified by GUID per asset
+    /renders/  -- contains files that were returned
+
+
+  ASSET SHARING:
+  
+  You wanted assets shared, ...
+  My main caution about this is:
+  - about 50-70% of "assets" used in requests are one-off -- for a particular execution,
+    or for a small run of executions;
+    I'm a little bit leary of having all assets be shared, permanently,  in one big directory.
+  - shared assets are typically reused EXTENSIVELY -- a single asset might be used hundreds of times.
+  - I think we should have per-request assets available, as well as the shared assets.
+  - if we decide to make them shared, we could just move them to the shared assets directory,
+    based on this system -- note that it's assets.json entry would need to be moved as well...
+
+  PARAMETERIZATION:
+  
+  Also, let me push back against your "no one big block" thing and parameterization vision:
+  The thing is, we don't know what we're varying and what we're not.
+  I mean in the first run, often everything is nice and pristine:
+  "This is a parameter!  This is fixed!"
+  But next thing we know...
+  "OH, ...  we need to parameterize this aspect that we didn't realize we needed to vary..."
+  
+  Shades of prototype-based OOP, vs. normal OOP:
+  In this work, it's often easier to just copy the prototype, and mutate as you go.
+
+  MIXING ASSET TYPES IN ASSETS FOLDERS:
+  
+  Also, I don't see what's gained, and I DO see what's lost, by not mixing asset types.
+  It's easy in file browsers to segregate by type.
+  GUID -> asset is very simple.
+
+  PARTS/ATTACHMENTS -- DO NOT SEGREGATE:
+  
+  As for renderlab/recipes/ -- I broadly like, but parts and attachments shouldn't be segregated.
+
+  JOBS?:
+  
+  Not so sure about jobs/, and inclined to include jobs/ as a subdir of the recipes?
+  As shown in my example? ...
+  HM, ...  But then it's hard to see all of the jobs together, and they really SHOULD be
+  seen together, ordered by time...
+  OK, we'll go with that...
+
+  INBOX/OUTBOX/TEMP-IMAGES:
+  
+  inbox/ and outbox/ I like.  :)  Keep that in for future expansion to filetalk based comms.
+  temp-images/ too.
+
+  WORKERS = PATCHBOARD PROCESSES?:
+  
+  I wonder if the workers should be filetalk patchboard processes...
+  If they were, then I could use them with other filetalk patchboard projects.
+  But it's a bit more work to set up, and you have to track like: "Did it just DIE while it was running?"
+  Timeouts, failure states, ...
+
+  MASKING:
+
+  I don't think you understood quite...
+  Oftem times, an image comes back "good", but it has some major flaw --
+  an extra hand, a tail, ...  And we need to fix it.
+
+  To do that, we pick an easily identifiable color (ex: #00FF00) and draw over the parts that were bad.
+  Then we submit it with a special "infill" request, and it infills it.
+
+  There are other edits we can do, but this is a common enough one.
+  It'd be nice to be able to (a) perform that cheaply, and (b) capture the results proximately.
+
+  It is NOT about applying a general asset -- they are NEVER reused,
+  always very specific to the specific image.
+
+  HASHING:
+
+  OK, I am convined.  We use hashing for asset files.
+
+  MULTIPLE RUNS:
+
+  I don't think you understand:  This is EXTREMELY HIGH PRIORITY, and is one of the very first
+  features we need, before anything else.  Multiple execution is an immediate use case.
+  To be able to run a request 6-10 times, with a single run, is urgently needed.
+  It can't wait for version 3.  It can't wait for version 2.  It has to be in the first version.
+  Above even ease of entry.
+
+  COLLECTIONS/EXPERIEMENTS:
+
+  OK?  I don't want to create more work for myself.
+  But I'm okay with it (modeling batches) if it's effortless.
+
+  AGREEMENTS FROM ME:
+  * store everything on disk
+  * separate recipe from frozen job from run result
+  * use controlled concurrency
+  * preserve exact outbound request snapshot
+  * keep reusable asset references
+  * use both GUIDs and content hashes
+  * CLI first
+  * design disk layout and schemas first
+
+  AGREEMENTS ABOUT WHAT TO AVOID:
+  * GUI sole source of truth
+
+  <sigh> WING-CAT!, ...
+
+  You don't have to worry about me confusing durable and temporary image file assets.
+  Don't have a cow, man.
+
+  WE NEED TO (URGENTLY):
+  * Resolve our difference about whether/how to model parameterization/variation.
+
+
+== Next Iteration: "We need to resolve parameterization vs. copying/mutation." ==
+date: 2026-03-26
+
+  Hang on --
+
+  No, Wing-Cat, --
+
+  PROJECT LAYOUT:
+
+  Your design, segregating runs from recipies, -- that was RIGHT.
+
+  Because I don't want to have to fish out "run-001" by looking
+  through all of the requests.
+
+  I am persuaded by you: Runs should be their own toplevel thing.
+
+
+  I don't ... QUITE get the separation of JOB and RUN, just yet?
+
+
+  MASKING:
+
+  We need to stop worrying about this right now.
+  This is for future expansion.
+  It's a detail, and an irrelevant one for the time being.
+
+
+  AGREEMENT:
+  * in-process worker pool for the time being,
+    NOT patchboard filetalk
+  * everything is concrete for now
+  * batch expansion
+  * execution is immutable
+
+
+  WHERE WE ARE:
+
+  Not at designing protocols yet.
+  I still want to get the file tree design right, first.
+  And that means we need to talk about recipes, jobs, and runs.
+
+
+== "We’re naming the shapes of reality in your system." ==
+date: 2026-03-26
+
+
+  My own notes:
+  
+    RECIPE -- what I want
+    JOB -- intention to execute (prepared)
+      -- frozen snapshot of all assets
+      -- concrete
+    RUN -- an attempted execution
+      -- success/failure
+      -- outputs (possibly)
+      -- timing, logs, errors
+
+
+  Digits --
+
+  Wing-Cat, we're gunna need more digits.
+
+    run-0000 -> run-9999
+
+  Not:
+
+    run-000 -> run-999
+
+  Honestly, I don't know if we might need 5 digits.
+  We could use Crockford-32 encoding...
+
+
+  OK, here's our file tree:
+
+
+renderlab/
+
+  assets/
+    assets.json  -- index of assets, details about them
+    <guid>.*
+
+  recipes/
+    recipes.json  -- an index of recipes that'll likely be here in the future
+    recipe-<id>/
+      recipe.json  -- details about a recipe
+      attachments/
+
+  jobs/
+    index_jobs.json  -- an index of jobs that'll likely be here in the future
+    job-<id>/
+      job.json
+      snapshot/
+        recipe.json
+        attachments/  -- all of the assets used will be duplicated into here
+
+  runs/
+    run-<id>/
+      run.json  -- incl's pointer to jobs
+      outputs/
+        <guid>.png
+
+  Questions:
+  - given a job, how do you find all of the runs that it ran?
+    (important, for seeing the image results!)
+
+
+== Given a job, how do you find all of its runs? ==
+date: 2026-03-26
+
+  Option 1 -- Run points to Job
+    -- well, regardless of we do,
+       this is strictly required:
+       Runs must definitely point to their inspiring jobs.
+
+  Option 2 -- Job keeps a list of runs
+    -- we might want to do this just as a matter of indexing;
+    -- it wouldn't have to be in job.json;
+       it could be external to job.json, if it's in the job directory
+
+      runs.json: ["run-0007", "run-0008", "run-0009"]
+
+    -- there could be a command you could run to "reindex,"
+       which just means going reading all of the runs,
+       and then rewriting the runs.json files in the jobs
+       directories
+
+  Option 3 -- Index file
+    -- oh, I guess... my take on Option 2, was Option 3...
+
+
+  DID YOU KNOW that there's a little known Option 4?
+
+  * Take a week out to write a general knowledge representation system
+    of entities and links between entities that generalizes to
+    all of the KM things we're doing, and makes it super-general
+    and that would work for what we're doing right here,
+    and it would feature indexing and everything.
+
+  * This is our destiny, Wing-Cat.
+    Eventually...
+
+  OK, back to our immediate context window: ...
+  
+  I think it's Option 1 + Option 3 for me.
+
+  + Option 5:
+
+  When you perform a job as a series of runs,
+  write down the runs.json file at that very moment,
+  so that you don't have to run an indexer after the fact.
+
+
+  RUN.JSON
+
+{
+  "run_id": "run-0007",
+  "job_id": "job-0032",
+  "created_at": "2026-03-26T17:02:00-07:00",
+  "status": "completed"
+}
+
+  Yeah, this is about what I expect.
+
+  It's missing something, though:
+
+{
+  "run_id": "run-0007",
+  "job_id": "job-0032",
+  "created_at": "2026-03-26T17:02:00-07:00",
+  "status": "completed",
+  "output": "<guid-or-hash>.<png/jpg>"
+}
+
+  By the way -- the file returned by Google, --
+  It'll probably have a time-stamp based name?
+  I think I want to transform it into either GUID or hash based name.
+  But preserve the filetype as received.
+
+
+  DIGITS
+
+  We'll stick with x4.
+  That means the system is good for 10,000 runs.
+  OK.
+
+  We'll probably create a new system by that point.
+
+
+  YOUR FINAL ANSWER
+
+  You said: Option-0001.
+  That it's the clean and decisive answer.
+  We'll just scan all of the runs...
+
+  ...
+
+
+  ...
+
+  Sounds like a time consuming delay.
+  I'm imagining scrolling through a list of jobs,
+  and every time we scroll down, the system hangs
+  a little bit, because it's gotta scan every single
+  fucking run that's been done, to see if it
+  matches that job.
+
+
+  Wait, no, we won't do that.
+  We're going to cache the results in a dictionary,
+  in the running program.
+  It'll only look at directories it doesn't recognize?
+
+  Is it going to get and process a directory listing
+  each time you move ...
+
+  No, ...
+
+  We're going to periodically scan all of the folders
+  on the disk, like once every 20 seconds,
+  and automatically perform one after runs are kicked
+  off and directories created for them...
+
+  Something like that..?
+
+  ...
+
+
+  Premature optimization.
+
+  NOT going to think about it any more.
+
+  I'm going with you, Kitten.
+
+
+  Affirm all this first and we'll talk about nex steps then.
+
+
+== renderlab.system.v1 (pyramidal spec) ==
+date: 2026-03-26
+
+
+  recipe.json --
+
+  * We might want something to help determine the models
+    available, and the settings, how to apply them -- at some point.
+      - but we have the "code" feature of AIStudio,
+        so we can capture some of that information manually,
+        and adjust code to handle new types.
+
+  * I'm attaching code from AI studio that demonstrates
+    raw prompt text, attaching a image/png, attaching application/json,
+    and setting the two settings on the Nano Banana 2 model
+    (which is designated "gemini-3.1-flash-image-preview" officially),
+    the settings being aspect_ratio="2:3" and the image_size being "2K".
+
+      - In recipe.json, this would be:
+        - model: "gemini-3.1-flash-image-preview"
+        - settings["aspect_ratio"]: "2:3"
+        - settings["image_size"]: "2K"
+        - there is no "n" and there is no "resolution"
+
+      - We can see in the sample code exactly how the naked prompt
+        is included: "types.Part.from_text(text='...')",
+        and how the image/png and application/json are included;
+        there is no need to use base64.b64decode, I believe
+        we should be able to just read the bytes from a file, too.
+
+  * I approve of the recipe?
+    - I think we should also include: "name", "tags": [....]
+      - so that the user doesn't have to type a recipe number every time
+      - names are NOT authoritative; recipe-id is authoritative
+      - names SHOULD be unique; if they are not unique, they are "broken"
+      - MAYBE a GUID should be authoritative?  Not sure.
+
+  * prompt should be able to be set to null --
+    - you can absolutely prompt with just image/png and application/json;
+      it just sees it all as "parts" anyways (see: the example code)
+
+
+  job.json --
+
+  * Technically speaking, including recipe_id is redundant,
+    because the recipe.json file used (which knows its own ID)
+    is included in the subdirectory
+
+  * So happy to see batch["count"] in here.
+
+  I agree with job.json completely.
+
+
+  run.json --
+
+  I agree with run.json completely.
+  Just know that the output isn't necessarily a .png.
+  I think AI Studio returns .jpg most often, for full sized images.
+
+
+  I think I just... want to start writing the code for this.
+
+  We should probably talk about what the CLI convention is like.
+
+  I think I want to use lionscliapp for this, though it will
+  make argument passing a little bit obnoxious --
+  the savings in having configured storage just working,
+  out of the box, and the simplicity of using it, I think would
+  make it worth it.
+  I'm including a reference spec for lionscliapp as well,
+  so you can understand the constratins on the CLI.
+
+  Let me know if you think I'm going out of order in an important way.
+
+
+== locking the interface to reality before building machinery ==
+date: 2026-03-26
+
+
+  Hang on:
+
+  * I think we need to spec out recipe.json now.
+    Not a super-tight definition, but -- enough.
+
+  * Specs need to be JSON from here on out.
+    (see attached spec on what documents are like.)
+    IDs for these specis should all start with "renderlab.spec."
+
+  We need these specs, right away:
+
+  * renderlab.spec.renderlab-cli-tool.v1
+  * renderlab.spec.recipe-json.v1
+  * renderlab.spec.job-json.v1
+  * renderlab.spec.run-json.v1
+
+
+  Your proposed CLI surface is broken, lionscliapp can't support it (yet).
+  Here's why -- you get only ONE word as an argument without -- on it.
+
+  Easy to fix:
+
+    renderlab recipe:new        (rather than: renderlab recipe new)
+    renderlab recipe:list       (lists)
+    renderlab recipe:show --id  (show)
+    renderlab recipe:clone --id <id of recipe to clone>
+    
+    renderlab job:create --id <recipe id> --job.count #   (NOTE: lionscliapp means you can reset the default --job.count; it defaults to 1.)
+    renderlab job:run --id <job id>
+    
+    renderlab run:list
+    renderlab run:show --id <id>
+
+  Being explicit rather than implicit, I think, will help here.
+  And using --id consistently, will reduce the memorization burden:
+  the context will tell you if it is a recipe id or a job id.
+
+
+  lionscliapp keys:
+
+  I don't want to define all of those -- just path.root.
+  
+  /assets
+  /recipes
+  /jobs
+  /runs
+
+  ...those are all fixed under path.root.
+
+  run.parallellism...
+
+  That's good.  The batch inside the job will tell how many images to create.
+  run.parallelism will inform the run systems how many of those batch can
+  actually be running at a particular time.
+
+  That's fine.  That's Justice.
+
+  The batch count ...
+    Yeah, ...
+
+
+  BATCH COUNT
+
+  So in lionscliapp, you can give give default values.  This is perfect:
+
+    app.declare_key("job.count", "1")
+
+  When you run job:create, it'll check job.count, int it, and store that as the batch count.
+  You can call renderlab job:create --job.count <#> to temporarily override the value (lionscliapp will take care of this,) or call renderlab set job.count <#> to set it to a different value.  Love it.  That's lionscliapp doing what it was designed to do.
+
+  Recipies will NOT put a default on batch count.  Totally different issue.
+

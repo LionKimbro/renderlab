@@ -1,0 +1,55 @@
+{
+  "document": {
+    "document-id": "renderlab.spec.run-json.v1",
+    "title": "Renderlab Run JSON Specification v1",
+    "tags": ["renderlab","run","json","execution","spec"],
+    "purpose": "Define the structure of run.json, representing a single execution attempt."
+  },
+
+  "identity": {
+    "role": "execution record",
+    "mutability": "immutable after completion",
+    "granularity": "one run per execution attempt"
+  },
+
+  "required-fields": {
+    "run_id": "Unique identifier (e.g., run-0007)",
+    "job_id": "Reference to job",
+    "created_at": "ISO timestamp",
+    "status": "Execution status",
+    "outputs": "List of output filenames"
+  },
+
+  "optional-fields": {
+    "started_at": "ISO timestamp",
+    "ended_at": "ISO timestamp",
+    "error": "Error message or null",
+    "logs": "Path to logs file"
+  },
+
+  "status-values": [
+    "pending",
+    "running",
+    "completed",
+    "failed"
+  ],
+
+  "outputs-rules": [
+    "Outputs stored in runs/<run-id>/outputs/",
+    "Filenames use GUID or content hash",
+    "File extension preserved from model response"
+  ],
+
+  "linkage": [
+    "run.json contains job_id (authoritative)",
+    "job may maintain derived runs.json index"
+  ],
+
+  "example": {
+    "run_id": "run-0007",
+    "job_id": "job-0032",
+    "created_at": "2026-03-26T17:02:00-07:00",
+    "status": "completed",
+    "outputs": ["a94f3c2e.jpg"]
+  }
+}

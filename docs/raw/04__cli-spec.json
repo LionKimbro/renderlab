@@ -1,0 +1,63 @@
+{
+  "document": {
+    "document-id": "renderlab.spec.renderlab-cli-tool.v1",
+    "title": "Renderlab CLI Tool Specification v1",
+    "tags": ["renderlab","cli","lionscliapp","execution","spec"],
+    "purpose": "Define the command surface and configuration model for the renderlab CLI tool using lionscliapp constraints."
+  },
+
+  "identity": {
+    "tool-name": "renderlab",
+    "framework": "lionscliapp",
+    "command-model": "single-command-word with colon-separated namespaces"
+  },
+
+  "design-principles": [
+    "Commands are explicit and unambiguous.",
+    "All identifiers passed via --id.",
+    "No positional arguments beyond command word.",
+    "Configuration handled via lionscliapp keys.",
+    "Filesystem is source of truth."
+  ],
+
+  "commands": [
+    {"name": "recipe:new",   "description": "Create a new recipe."},
+    {"name": "recipe:list",  "description": "List recipes."},
+    {"name": "recipe:show",  "description": "Show a recipe.", "args": ["--id"]},
+    {"name": "recipe:clone", "description": "Clone a recipe.", "args": ["--id"]},
+
+    {"name": "job:create",   "description": "Create a job from a recipe.", "args": ["--id","--job.count"]},
+    {"name": "job:run",      "description": "Execute a job.", "args": ["--id"]},
+
+    {"name": "run:list",     "description": "List runs."},
+    {"name": "run:show",     "description": "Show a run.", "args": ["--id"]}
+  ],
+
+  "configuration-keys": {
+    "path.root": {
+      "description": "Root directory for renderlab data."
+    },
+    "job.count": {
+      "description": "Default batch count for job creation.",
+      "default": "1"
+    },
+    "run.parallelism": {
+      "description": "Maximum concurrent runs.",
+      "default": "6"
+    }
+  },
+
+  "derived-paths": [
+    "path.root/assets",
+    "path.root/recipes",
+    "path.root/jobs",
+    "path.root/runs"
+  ],
+
+  "execution-behavior": [
+    "job:create reads job.count and writes batch.count into job.json.",
+    "job:run creates runs according to job.batch.count.",
+    "run.parallelism limits concurrent execution.",
+    "All filesystem writes are append-only for runs."
+  ]
+}

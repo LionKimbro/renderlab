@@ -1,0 +1,63 @@
+{
+  "document": {
+    "document-id": "renderlab.spec.recipe-json.v1",
+    "title": "Renderlab Recipe JSON Specification v1",
+    "tags": ["renderlab","recipe","json","spec"],
+    "purpose": "Define the structure of recipe.json, representing a mutable render request definition."
+  },
+
+  "identity": {
+    "role": "editable definition of a render request",
+    "mutability": "mutable",
+    "execution": "not executed directly"
+  },
+
+  "required-fields": {
+    "recipe_id": "Unique identifier (e.g., recipe-0001)",
+    "name": "Human-readable name",
+    "model": "Model identifier string"
+  },
+
+  "optional-fields": {
+    "tags": "List of descriptive tags",
+    "created_at": "ISO timestamp",
+    "prompt": "String, structured object, or null",
+    "attachments": "List of attachment objects",
+    "settings": "Model-specific settings dictionary"
+  },
+
+  "attachments-format": {
+    "description": "Attachments correspond to model parts (binary or structured)",
+    "schema": {
+      "asset": "GUID or relative file path",
+      "mime_type": "MIME type string (e.g., image/png, application/json)"
+    }
+  },
+
+  "prompt-rules": [
+    "prompt may be null",
+    "prompt is treated as one part among many",
+    "attachments may fully define the request"
+  ],
+
+  "settings-rules": [
+    "settings are model-specific",
+    "no fixed schema enforced",
+    "example: aspect_ratio, image_size"
+  ],
+
+  "example": {
+    "recipe_id": "recipe-0001",
+    "name": "forest squirrel",
+    "tags": ["forest","squirrel"],
+    "model": "gemini-3.1-flash-image-preview",
+    "prompt": "A squirrel druid in a forest",
+    "attachments": [
+      {"asset": "abc123.png", "mime_type": "image/png"}
+    ],
+    "settings": {
+      "aspect_ratio": "2:3",
+      "image_size": "2K"
+    }
+  }
+}

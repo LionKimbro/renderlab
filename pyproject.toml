@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renderlab"
+version = "0.1.0"
+description = "Filesystem-based render execution system"
+readme = "docs/raw/01__pyramid-spec-for-renderlab.md"
+requires-python = ">=3.11"
+dependencies = [
+  "lionscliapp",
+]
+
+[project.scripts]
+renderlab = "renderlab.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

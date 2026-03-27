@@ -1,0 +1,51 @@
+{
+  "document": {
+    "document-id": "renderlab.spec.job-json.v1",
+    "title": "Renderlab Job JSON Specification v1",
+    "tags": ["renderlab","job","json","spec"],
+    "purpose": "Define the structure of job.json, representing a frozen execution intention derived from a recipe."
+  },
+
+  "identity": {
+    "role": "frozen execution definition",
+    "mutability": "immutable after creation",
+    "origin": "derived from recipe"
+  },
+
+  "required-fields": {
+    "job_id": "Unique identifier (e.g., job-0032)",
+    "created_at": "ISO timestamp",
+    "batch": "Batch configuration object"
+  },
+
+  "optional-fields": {
+    "recipe_id": "Reference to originating recipe"
+  },
+
+  "batch-schema": {
+    "count": "Number of runs to create"
+  },
+
+  "snapshot": {
+    "description": "Filesystem snapshot stored in job directory",
+    "contents": [
+      "recipe.json (copied)",
+      "attachments/ (copied assets)"
+    ]
+  },
+
+  "rules": [
+    "job.json must not change after creation",
+    "snapshot defines the authoritative execution inputs",
+    "batch.count determines number of runs"
+  ],
+
+  "example": {
+    "job_id": "job-0032",
+    "created_at": "2026-03-26T17:01:00-07:00",
+    "recipe_id": "recipe-0001",
+    "batch": {
+      "count": 6
+    }
+  }
+}
