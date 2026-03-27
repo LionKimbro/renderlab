@@ -8,6 +8,7 @@ import os
 import shutil
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -248,7 +249,7 @@ def cmd_job_run() -> None:
         raise ValueError("job:run requires --id")
 
     job = read_job(job_id)
-    parse_positive_int(app.ctx["run.parallelism"], "run.parallelism")
+    run_parallelism = parse_positive_int(app.ctx["run.parallelism"], "run.parallelism")
     batch_count = parse_positive_int(job["batch"]["count"], "job.batch.count")
     snapshot_recipe = read_job_snapshot_recipe(job_id)
 
@@ -276,8 +277,16 @@ def cmd_job_run() -> None:
     save_state(state)
     append_job_runs(job_id, created_run_ids)
 
+    worker_count = min(run_parallelism, len(created_run_ids))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        future_to_run_id = {
+            executor.submit(execute_run, job_id, run_id, snapshot_recipe): run_id
+            for run_id in created_run_ids
+        }
+        for future in as_completed(future_to_run_id):
+            future.result()
+
     for run_id in created_run_ids:
-        execute_run(job_id, run_id, snapshot_recipe)
         print(run_id)
 
 
