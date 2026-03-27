@@ -28,6 +28,7 @@ CMD_RECIPE_SHOW = "recipe:show"
 CMD_RECIPE_CLONE = "recipe:clone"
 CMD_JOB_CREATE = "job:create"
 CMD_JOB_RUN = "job:run"
+CMD_JOB_COLLECT = "job:collect"
 CMD_RUN_LIST = "run:list"
 CMD_RUN_SHOW = "run:show"
 
@@ -44,6 +45,7 @@ def declare_app() -> None:
     app.declare_projectdir(".renderlab")
 
     app.declare_key("path.root", ".")
+    app.declare_key("path.collection", ".")
     app.declare_key("id", "")
     app.declare_key("model", DEFAULT_MODEL)
     app.declare_key("aspect_ratio", DEFAULT_ASPECT_RATIO)
@@ -51,8 +53,10 @@ def declare_app() -> None:
     app.declare_key("name", "")
     app.declare_key("job.count", "1")
     app.declare_key("run.parallelism", "6")
+    app.declare_key("flags", "")
 
     app.describe_key("path.root", "Root directory for renderlab data.")
+    app.describe_key("path.collection", "Where job:collect will collect resulting files to.")
     app.describe_key("id", "Identifier used by show and execution commands.")
     app.describe_key("model", "Default model for new recipes.")
     app.describe_key("aspect_ratio", "Default aspect ratio (note: model specific)")
@@ -60,6 +64,7 @@ def declare_app() -> None:
     app.describe_key("name", "Name for a new recipe.")
     app.describe_key("job.count", "Default batch count used by job:create.")
     app.describe_key("run.parallelism", "Maximum concurrent runs for job:run.")
+    app.describe_key("flags", "Boolean mode options; Specific to the command.")
 
     app.set_flag("search_upwards_for_project_dir", True)
 
@@ -70,6 +75,7 @@ def declare_app() -> None:
     app.declare_cmd(CMD_RECIPE_CLONE, cmd_recipe_clone)
     app.declare_cmd(CMD_JOB_CREATE, cmd_job_create)
     app.declare_cmd(CMD_JOB_RUN, cmd_job_run)
+    app.declare_cmd(CMD_JOB_COLLECT, cmd_job_collect)
     app.declare_cmd(CMD_RUN_LIST, cmd_run_list)
     app.declare_cmd(CMD_RUN_SHOW, cmd_run_show)
 
@@ -80,6 +86,7 @@ def declare_app() -> None:
     app.describe_cmd(CMD_RECIPE_CLONE, "Clone a recipe identified by --id.")
     app.describe_cmd(CMD_JOB_CREATE, "Create a job from a recipe identified by --id.")
     app.describe_cmd(CMD_JOB_RUN, "Execute a job identified by --id.")
+    app.describe_cmd(CMD_JOB_COLLECT, "Collect output images from runs belonging to a job. (flag 'L' [last]: collect images from most recent job)")
     app.describe_cmd(CMD_RUN_LIST, "List runs.")
     app.describe_cmd(CMD_RUN_SHOW, "Show a run identified by --id.")
 
@@ -290,6 +297,24 @@ def cmd_job_run() -> None:
         print(run_id)
 
 
+def cmd_job_collect() -> None:
+    ensure_root_layout()
+    job_id = resolve_collect_job_id()
+    collection_root = Path(app.ctx["path.collection"])
+    target_dir = collection_root / job_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    for run_id in get_run_ids_for_job(job_id):
+        run = read_run(run_id)
+        for filename in run.get("outputs", []):
+            source_path = get_run_dir(run_id) / "outputs" / filename
+            if not source_path.exists():
+                raise FileNotFoundError(f"Run output not found: {run_id}/{filename}")
+            destination_path = target_dir / f"{run_id}_{filename}"
+            shutil.copy2(source_path, destination_path)
+            print(destination_path.name)
+
+
 def cmd_run_list() -> None:
     ensure_root_layout()
     runs_dir = get_root_path() / "runs"
@@ -478,6 +503,49 @@ def read_run(run_id: str) -> dict:
         raise FileNotFoundError(f"Run not found: {run_id}")
 
     return read_json_file(run_path)
+
+
+def resolve_collect_job_id() -> str:
+    """Resolve the job id for job:collect from --id or flags."""
+    if app.ctx["id"]:
+        return app.ctx["id"]
+
+    if "L" in app.ctx["flags"]:
+        return get_last_job_id()
+
+    raise ValueError("Must specify --id <job-id> or enable L (last-job-id) flag")
+
+
+def get_last_job_id() -> str:
+    """Return the most recent job id by directory name."""
+    job_dirs = sorted(
+        path.name
+        for path in get_root_path().joinpath("jobs").iterdir()
+        if path.is_dir() and path.name.startswith("job-")
+    )
+    if not job_dirs:
+        raise FileNotFoundError("No jobs found")
+    return job_dirs[-1]
+
+
+def get_run_ids_for_job(job_id: str) -> list[str]:
+    """Return run ids for a job from runs.json or by scanning runs."""
+    runs_path = get_job_dir(job_id) / "runs.json"
+    if runs_path.exists():
+        run_ids = read_json_file(runs_path)
+        return sorted(run_ids)
+
+    run_ids = []
+    runs_dir = get_root_path() / "runs"
+    for run_dir in sorted(
+        path
+        for path in runs_dir.iterdir()
+        if path.is_dir() and path.name.startswith("run-")
+    ):
+        run = read_run(run_dir.name)
+        if run.get("job_id") == job_id:
+            run_ids.append(run_dir.name)
+    return run_ids
 
 
 def append_job_runs(job_id: str, run_ids: list[str]) -> None:
