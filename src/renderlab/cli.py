@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import shutil
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -238,6 +241,7 @@ def cmd_job_run() -> None:
     job = read_job(job_id)
     parse_positive_int(app.ctx["run.parallelism"], "run.parallelism")
     batch_count = parse_positive_int(job["batch"]["count"], "job.batch.count")
+    snapshot_recipe = read_job_snapshot_recipe(job_id)
 
     state = load_state()
     next_run_number = state["next_run_number"]
@@ -264,6 +268,7 @@ def cmd_job_run() -> None:
     append_job_runs(job_id, created_run_ids)
 
     for run_id in created_run_ids:
+        execute_run(job_id, run_id, snapshot_recipe)
         print(run_id)
 
 
@@ -426,6 +431,15 @@ def read_job(job_id: str) -> dict:
     return read_json_file(job_path)
 
 
+def read_job_snapshot_recipe(job_id: str) -> dict:
+    """Load the frozen snapshot recipe for a job."""
+    recipe_path = get_job_dir(job_id) / "snapshot" / "recipe.json"
+    if not recipe_path.exists():
+        raise FileNotFoundError(f"Job snapshot recipe not found: {job_id}")
+
+    return read_json_file(recipe_path)
+
+
 def read_run(run_id: str) -> dict:
     """Load a run by id from the filesystem."""
     run_path = get_run_dir(run_id) / "run.json"
@@ -445,3 +459,172 @@ def append_job_runs(job_id: str, run_ids: list[str]) -> None:
 
     existing.extend(run_ids)
     write_json_file(runs_path, existing)
+
+
+def execute_run(job_id: str, run_id: str, recipe: dict) -> None:
+    """Execute one run from a frozen job snapshot and persist the result."""
+    run_dir = get_run_dir(run_id)
+    run_path = run_dir / "run.json"
+    run = read_run(run_id)
+
+    started_at = timestamp_to_iso8601(time.time())
+    run["started_at"] = started_at
+    run["status"] = "running"
+    write_json_file(run_path, run)
+
+    try:
+        outputs, log_text = generate_outputs_for_recipe(job_id, run_id, recipe)
+        run["outputs"] = outputs
+        run["status"] = "completed"
+        if log_text:
+            log_path = run_dir / "logs.txt"
+            log_path.write_text(log_text, encoding="utf-8")
+            run["logs"] = "logs.txt"
+        run["error"] = None
+    except Exception as exc:
+        run["status"] = "failed"
+        run["error"] = str(exc)
+
+    run["ended_at"] = timestamp_to_iso8601(time.time())
+    write_json_file(run_path, run)
+
+
+def generate_outputs_for_recipe(job_id: str, run_id: str, recipe: dict) -> tuple[list[str], str]:
+    """Call Gemini for a frozen recipe and write any returned image outputs."""
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    contents = [build_user_content(job_id, recipe, types)]
+    config = build_generate_config(recipe, types)
+
+    output_dir = get_run_dir(run_id) / "outputs"
+    outputs = []
+    text_chunks = []
+
+    for chunk in client.models.generate_content_stream(
+        model=recipe["model"],
+        contents=contents,
+        config=config,
+    ):
+        chunk_parts = getattr(chunk, "parts", None) or []
+        if not chunk_parts and getattr(chunk, "text", None):
+            text_chunks.append(chunk.text)
+            continue
+
+        for part in chunk_parts:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data and inline_data.data:
+                filename = write_output_file(output_dir, inline_data.mime_type, inline_data.data)
+                outputs.append(filename)
+            elif getattr(part, "text", None):
+                text_chunks.append(part.text)
+
+    return outputs, "".join(text_chunks)
+
+
+def build_user_content(job_id: str, recipe: dict, types_module) -> object:
+    """Build the user content payload for Gemini from a frozen recipe."""
+    parts = []
+    prompt = recipe.get("prompt")
+    if prompt is not None:
+        parts.append(build_prompt_part(prompt, types_module))
+
+    for attachment in recipe.get("attachments", []):
+        parts.append(build_attachment_part(job_id, attachment, types_module))
+
+    if not parts:
+        raise ValueError("Recipe has no prompt or attachments to submit")
+
+    return types_module.Content(role="user", parts=parts)
+
+
+def build_prompt_part(prompt: object, types_module) -> object:
+    """Convert a prompt value into a Gemini content part."""
+    if isinstance(prompt, str):
+        return types_module.Part.from_text(text=prompt)
+
+    payload = json.dumps(prompt, indent=2).encode("utf-8")
+    return types_module.Part.from_bytes(data=payload, mime_type="application/json")
+
+
+def build_attachment_part(job_id: str, attachment: dict, types_module) -> object:
+    """Build a Gemini content part from an attachment entry."""
+    if not isinstance(attachment, dict):
+        raise ValueError("Attachment entries must be objects")
+
+    asset_ref = attachment.get("asset")
+    mime_type = attachment.get("mime_type")
+    if not asset_ref or not mime_type:
+        raise ValueError("Attachment entries require asset and mime_type")
+
+    attachment_path = resolve_attachment_path(job_id, asset_ref)
+    data = attachment_path.read_bytes()
+    return types_module.Part.from_bytes(data=data, mime_type=mime_type)
+
+
+def resolve_attachment_path(job_id: str, asset_ref: str) -> Path:
+    """Resolve an attachment reference from a job snapshot or shared assets."""
+    candidate = Path(asset_ref)
+    if candidate.is_absolute():
+        if not candidate.exists():
+            raise FileNotFoundError(f"Attachment not found: {asset_ref}")
+        return candidate
+
+    snapshot_path = get_job_dir(job_id) / "snapshot" / "attachments" / candidate
+    if snapshot_path.exists():
+        return snapshot_path
+
+    shared_asset_path = get_root_path() / "assets" / candidate
+    if shared_asset_path.exists():
+        return shared_asset_path
+
+    raise FileNotFoundError(f"Attachment not found: {asset_ref}")
+
+
+def build_generate_config(recipe: dict, types_module) -> object:
+    """Build the GenerateContentConfig from recipe settings."""
+    settings = recipe.get("settings") or {}
+    image_kwargs = {}
+
+    if "aspect_ratio" in settings:
+        image_kwargs["aspectRatio"] = settings["aspect_ratio"]
+    if "image_size" in settings:
+        image_kwargs["imageSize"] = settings["image_size"]
+    if "person_generation" in settings:
+        image_kwargs["personGeneration"] = settings["person_generation"]
+    if "output_mime_type" in settings:
+        image_kwargs["outputMimeType"] = settings["output_mime_type"]
+    if "output_compression_quality" in settings:
+        image_kwargs["outputCompressionQuality"] = settings["output_compression_quality"]
+
+    config_kwargs = {
+        "responseModalities": ["IMAGE", "TEXT"],
+    }
+    if image_kwargs:
+        config_kwargs["imageConfig"] = types_module.ImageConfig(**image_kwargs)
+
+    return types_module.GenerateContentConfig(**config_kwargs)
+
+
+def write_output_file(output_dir: Path, mime_type: str, data: bytes) -> str:
+    """Write one generated output file and return its filename."""
+    extension = extension_for_mime_type(mime_type)
+    filename = f"{uuid.uuid4().hex}{extension}"
+    (output_dir / filename).write_bytes(data)
+    return filename
+
+
+def extension_for_mime_type(mime_type: str) -> str:
+    """Return a preferred filename extension for a MIME type."""
+    overrides = {
+        "image/jpeg": ".jpg",
+    }
+    if mime_type in overrides:
+        return overrides[mime_type]
+
+    return mimetypes.guess_extension(mime_type) or ".bin"
