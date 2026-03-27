@@ -15,7 +15,10 @@ import lionscliapp as app
 
 
 VERSION = "0.1.0"
-DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
+kNANO_BANANA_2 = "gemini-3.1-flash-image-preview"
+DEFAULT_MODEL = kNANO_BANANA_2
+DEFAULT_ASPECT_RATIO = "2:3"
+DEFAULT_IMAGE_SIZE = "2K"
 
 CMD_INIT = "init"
 CMD_RECIPE_NEW = "recipe:new"
@@ -42,6 +45,8 @@ def declare_app() -> None:
     app.declare_key("path.root", ".")
     app.declare_key("id", "")
     app.declare_key("model", DEFAULT_MODEL)
+    app.declare_key("aspect_ratio", DEFAULT_ASPECT_RATIO)
+    app.declare_key("image_size", DEFAULT_IMAGE_SIZE)
     app.declare_key("name", "")
     app.declare_key("job.count", "1")
     app.declare_key("run.parallelism", "6")
@@ -49,6 +54,8 @@ def declare_app() -> None:
     app.describe_key("path.root", "Root directory for renderlab data.")
     app.describe_key("id", "Identifier used by show and execution commands.")
     app.describe_key("model", "Default model for new recipes.")
+    app.describe_key("aspect_ratio", "Default aspect ratio (note: model specific)")
+    app.describe_key("image_size", "Default image size (note: model specific)")
     app.describe_key("name", "Name for a new recipe.")
     app.describe_key("job.count", "Default batch count used by job:create.")
     app.describe_key("run.parallelism", "Maximum concurrent runs for job:run.")
@@ -104,16 +111,17 @@ def cmd_recipe_new() -> None:
     recipe_number = state["next_recipe_number"]
     recipe_id = format_identifier("recipe", recipe_number)
     recipe_name = app.ctx["name"] or recipe_id
+    model = app.ctx["model"]
 
     recipe = {
         "recipe_id": recipe_id,
         "name": recipe_name,
-        "model": app.ctx["model"],
+        "model": model,
         "tags": [],
         "created_at": timestamp_to_iso8601(time.time()),
         "prompt": None,
         "attachments": [],
-        "settings": {},
+        "settings": build_default_settings_for_model(model),
     }
 
     recipe_dir = get_root_path() / "recipes" / recipe_id
@@ -392,6 +400,19 @@ def parse_positive_int(value: object, field_name: str) -> int:
 def timestamp_to_iso8601(value: float) -> str:
     """Convert a Unix timestamp to a local ISO 8601 string."""
     return datetime.fromtimestamp(value).astimezone().isoformat(timespec="seconds")
+
+
+def build_default_settings_for_model(model: str) -> dict:
+    """Build model-specific default settings for a new recipe."""
+    settings = {}
+
+    if model == kNANO_BANANA_2:
+        if app.ctx["aspect_ratio"]:
+            settings["aspect_ratio"] = app.ctx["aspect_ratio"]
+        if app.ctx["image_size"]:
+            settings["image_size"] = app.ctx["image_size"]
+
+    return settings
 
 
 def get_recipe_path(recipe_id: str) -> Path:
