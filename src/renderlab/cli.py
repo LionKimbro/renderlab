@@ -222,6 +222,7 @@ def cmd_job_create() -> None:
         shutil.copytree(recipe_attachments_dir, snapshot_attachments_dir)
     else:
         snapshot_attachments_dir.mkdir()
+    copy_referenced_shared_assets_to_snapshot(recipe, snapshot_attachments_dir)
 
     write_json_file(job_dir / "job.json", job)
     write_json_file(snapshot_dir / "recipe.json", recipe)
@@ -568,7 +569,7 @@ def build_attachment_part(job_id: str, attachment: dict, types_module) -> object
 
 
 def resolve_attachment_path(job_id: str, asset_ref: str) -> Path:
-    """Resolve an attachment reference from a job snapshot or shared assets."""
+    """Resolve an attachment reference from a job snapshot only."""
     candidate = Path(asset_ref)
     if candidate.is_absolute():
         if not candidate.exists():
@@ -579,11 +580,49 @@ def resolve_attachment_path(job_id: str, asset_ref: str) -> Path:
     if snapshot_path.exists():
         return snapshot_path
 
+    raise FileNotFoundError(f"Snapshot attachment not found: {asset_ref}")
+
+
+def resolve_shared_asset_path(asset_ref: str) -> Path | None:
+    """Resolve an attachment reference against the shared assets tree only."""
+    candidate = Path(asset_ref)
+    if candidate.is_absolute():
+        return None
+
     shared_asset_path = get_root_path() / "assets" / candidate
     if shared_asset_path.exists():
         return shared_asset_path
 
-    raise FileNotFoundError(f"Attachment not found: {asset_ref}")
+    return None
+
+
+def copy_referenced_shared_assets_to_snapshot(recipe: dict, snapshot_attachments_dir: Path) -> None:
+    """Copy any shared asset attachments into the job snapshot."""
+    for attachment in recipe.get("attachments", []):
+        if not isinstance(attachment, dict):
+            continue
+
+        asset_ref = attachment.get("asset")
+        if not asset_ref:
+            continue
+
+        shared_asset_path = resolve_shared_asset_path(asset_ref)
+        if shared_asset_path is None:
+            continue
+
+        destination_path = snapshot_attachments_dir / Path(asset_ref)
+        copy_snapshot_attachment(shared_asset_path, destination_path)
+
+
+def copy_snapshot_attachment(source_path: Path, destination_path: Path) -> None:
+    """Copy one attachment into a snapshot without silently changing existing content."""
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    if destination_path.exists():
+        if source_path.read_bytes() == destination_path.read_bytes():
+            return
+        raise ValueError(f"Snapshot attachment collision: {destination_path.name}")
+
+    shutil.copy2(source_path, destination_path)
 
 
 def build_generate_config(recipe: dict, types_module) -> object:
